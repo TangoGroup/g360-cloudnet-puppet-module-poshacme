@@ -16,41 +16,51 @@ if ($domains.Count -eq 0) {
 try {
     $certs = Get-ChildItem "Cert:\LocalMachine\$certStore" -ErrorAction Stop
 } catch {
-    "Unable to read Cert:\LocalMachine\$certStore: $_" | Add-Content -Path $debugPath
-    exit 1
+    "Unable to read Cert:\LocalMachine\${certStore}: $_" | Add-Content -Path $debugPath
+    Write-Output "Unable to read Cert:\LocalMachine\${certStore}: $_"
+    exit 0
 }
 
-foreach ($cert in $certs) {
-    if ($cert.NotAfter -ge $cutoff) {
-        continue
-    }
+try {
+    foreach ($cert in $certs) {
+        if ($cert.NotAfter -ge $cutoff) {
+            continue
+        }
 
-    foreach ($domain in $domains) {
-        $escapedDomain = [regex]::Escape($domain)
-        $matchesSubject = $cert.Subject -match "CN=$escapedDomain(?:,|$)"
-        $matchesSan = $false
+        foreach ($domain in $domains) {
+            $escapedDomain = [regex]::Escape($domain)
+            $matchesSubject = $cert.Subject -match "CN=$escapedDomain(?:,|`$)"
+            $matchesSan = $false
 
-        foreach ($extension in $cert.Extensions) {
-            if (
-                $extension.Oid.FriendlyName -eq 'Subject Alternative Name' -and
-                $extension.Format($false) -match "(^|,\s*)DNS Name=$escapedDomain(,|$)"
-            ) {
-                $matchesSan = $true
+            foreach ($extension in $cert.Extensions) {
+                try {
+                    if (
+                        $null -ne $extension.Oid -and
+                        $extension.Oid.FriendlyName -eq 'Subject Alternative Name' -and
+                        $extension.Format($false) -match "(^|,\s*)DNS Name=$escapedDomain(,|`$)"
+                    ) {
+                        $matchesSan = $true
+                        break
+                    }
+                } catch {
+                    "Unable to inspect extension on cert $($cert.Thumbprint): $_" | Add-Content -Path $debugPath
+                }
+            }
+
+            if ($matchesSubject -or $matchesSan) {
+                "Removing stale cert $($cert.Thumbprint) for $domain; expired $($cert.NotAfter)" | Add-Content -Path $debugPath
+                try {
+                    $cert | Remove-Item -ErrorAction Stop
+                } catch {
+                    "Failed to remove stale cert $($cert.Thumbprint): $_" | Add-Content -Path $debugPath
+                }
                 break
             }
         }
-
-        if ($matchesSubject -or $matchesSan) {
-            "Removing stale cert $($cert.Thumbprint) for $domain; expired $($cert.NotAfter)" | Add-Content -Path $debugPath
-            try {
-                $cert | Remove-Item -ErrorAction Stop
-            } catch {
-                "Failed to remove stale cert $($cert.Thumbprint): $_" | Add-Content -Path $debugPath
-                exit 1
-            }
-            break
-        }
     }
+} catch {
+    "Unexpected cleanup error: $_" | Add-Content -Path $debugPath
+    Write-Output "Unexpected cleanup error: $_"
 }
 
 "=== cleanup-poshacme-certs end: $(Get-Date)" | Add-Content -Path $debugPath

@@ -44,6 +44,7 @@ if (-not (Test-Path $challengePath)) {
 }
 
 try {
+    $ErrorActionPreference = 'Stop'
     "Configuring ACME server to Let's Encrypt production" | Add-Content -Path $debugPath
     Set-PAServer LE_PROD | Out-Null
     if (-not (Get-PAAccount -BaseDir $baseDir -ErrorAction SilentlyContinue)) {
@@ -52,11 +53,13 @@ try {
     }
 
     "Requesting or renewing certificate for $($domains -join ', ')" | Add-Content -Path $debugPath
-    New-PACertificate -Name $orderName -Domain $domains -Plugin WebRoot -PluginArgs @{ WRPath = $webroot } -AcceptTos -Install -Verbose | Add-Content -Path $debugPath
+    New-PACertificate -Name $orderName -Domain $domains -Plugin WebRoot -PluginArgs @{ WRPath = $webroot } -AcceptTos -Install -Verbose -ErrorAction Stop | Add-Content -Path $debugPath
     "Posh-ACME certificate request finished" | Add-Content -Path $debugPath
 } catch {
-    "Posh-ACME certificate request failed: $_" | Add-Content -Path $debugPath
-    throw "Posh-ACME certificate request failed: $_"
+    $message = "Posh-ACME certificate request failed: $_"
+    $message | Add-Content -Path $debugPath
+    Write-Output $message
+    throw $message
     exit 1
 }
 

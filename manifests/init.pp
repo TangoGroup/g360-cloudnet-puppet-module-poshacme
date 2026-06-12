@@ -28,14 +28,20 @@ class poshacme (
   $letsencrypt_hosts = join($letsencrypt_domains, ',')
   $powershell_path = 'C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe'
 
-  $request_unless = @("POWERSHELL"/L)
-    \$escapedDomain = [regex]::Escape('${primary_domain}')
-    \$cert = Get-ChildItem Cert:\LocalMachine\${cert_store} |
-      Where-Object { \$_.Subject -match "CN=\$escapedDomain(?:,|\$)" } |
-      Sort-Object NotAfter -Descending |
-      Select-Object -First 1
-    if (\$cert -and \$cert.NotAfter -gt (Get-Date).AddDays(30)) { exit 0 } else { exit 1 }
-    | POWERSHELL
+  $request_unless = join([
+      "\$escapedDomain = [regex]::Escape('${primary_domain}')",
+      "\$cert = Get-ChildItem Cert:\\LocalMachine\\${cert_store} |",
+      '  Where-Object { $_.Subject -match "CN=$escapedDomain(?:,|$)" } |',
+      '  Sort-Object NotAfter -Descending |',
+      '  Select-Object -First 1',
+      'if ($cert -and $cert.NotAfter -gt (Get-Date).AddDays(30)) { exit 0 } else { exit 1 }',
+  ], "\n")
+  $install_unless = join([
+      'if (',
+      '  (Get-Module -ListAvailable -Name Posh-ACME) -or',
+      '  (Test-Path "C:/Program Files/WindowsPowerShell/Modules/Posh-ACME")',
+      ') { exit 0 } else { exit 1 }',
+  ], "\n")
 
   file { $webroot:
     ensure => directory,
@@ -68,8 +74,9 @@ class poshacme (
     require => File["${webroot}/.well-known/acme-challenge"],
   }
 
-  file { 'C:/temp':
+  file { 'poshacme-temp':
     ensure => directory,
+    path   => 'C:/temp',
   }
 
   file { 'C:/temp/request-poshacme-certificate.ps1':
@@ -81,12 +88,13 @@ class poshacme (
         'cert_store'        => $cert_store,
         'letsencrypt_email' => $letsencrypt_email,
     }),
-    require => File['C:/temp'],
+    require => File['poshacme-temp'],
   }
 
   exec { 'install_poshacme_module':
     command   => '[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; if (-not (Get-Module -ListAvailable -Name Posh-ACME)) { if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) { Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force } ; if (-not (Get-PSRepository -Name PSGallery -ErrorAction SilentlyContinue)) { Register-PSRepository -Name PSGallery -SourceLocation https://www.powershellgallery.com/api/v2 -InstallationPolicy Trusted } else { Set-PSRepository -Name PSGallery -InstallationPolicy Trusted } ; Install-Module -Name Posh-ACME -Scope AllUsers -Force -AllowClobber -Confirm:$false }',
     provider  => powershell,
+    unless    => $install_unless,
     logoutput => true,
     timeout   => 1200,
   }
@@ -131,14 +139,25 @@ class poshacme (
           'letsencrypt_hosts' => $letsencrypt_hosts,
           'cert_store'        => $cert_store,
       }),
-      require => File['C:/temp'],
+      require => File['poshacme-temp'],
     }
 
+    $cleanup_command = @("POWERSHELL"/L)
+      & '${powershell_path}' `
+        -NoProfile `
+        -NonInteractive `
+        -ExecutionPolicy Bypass `
+        -File C:/temp/cleanup-poshacme-certs.ps1
+      | POWERSHELL
+
     exec { 'cleanup-poshacme-certs':
-      command   => "& '${powershell_path}' -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:/temp/cleanup-poshacme-certs.ps1",
+      command   => $cleanup_command,
       provider  => powershell,
       logoutput => true,
-      require   => File['C:/temp/cleanup-poshacme-certs.ps1'],
+      require   => [
+        File['C:/temp/cleanup-poshacme-certs.ps1'],
+        Exec['request-poshacme-certificate'],
+      ],
     }
   }
 }

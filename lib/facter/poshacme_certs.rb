@@ -1,4 +1,5 @@
 require 'json'
+require 'base64'
 require 'time'
 
 Facter.add(:poshacme_certs) do
@@ -6,36 +7,46 @@ Facter.add(:poshacme_certs) do
 
   setcode do
     begin
-      command = <<~POWERSHELL
-        powershell -NoProfile -NonInteractive -Command "Try {
-          Get-ChildItem -Path Cert:\\LocalMachine\\My |
-            Where-Object { $_.Subject -match 'CN=' } |
-            ForEach-Object {
-              if ($_.Subject -match 'CN=([^,]+)') {
-                [PSCustomObject]@{
-                  cn         = $Matches[1]
-                  thumbprint = $_.Thumbprint
-                  not_after  = $_.NotAfter.ToUniversalTime().ToString('o')
-                }
-              }
-            } |
-            ConvertTo-Json -Compress
-        } Catch { '{}' }"
+      script = <<~POWERSHELL
+        $results = @()
+        Get-ChildItem -Path Cert:\\LocalMachine\\My | ForEach-Object {
+          $cert = $_
+          $names = @()
+          if ($cert.Subject -match 'CN=([^,]+)') {
+            $names += $Matches[1]
+          }
+          foreach ($extension in $cert.Extensions) {
+            if ($null -ne $extension.Oid -and $extension.Oid.FriendlyName -eq 'Subject Alternative Name') {
+              $names += [regex]::Matches($extension.Format($false), 'DNS Name=([^,]+)') |
+                ForEach-Object { $_.Groups[1].Value }
+            }
+          }
+          foreach ($name in ($names | Where-Object { $_ } | Select-Object -Unique)) {
+            $results += [PSCustomObject]@{
+              name       = $name
+              thumbprint = $cert.Thumbprint
+              not_after  = $cert.NotAfter.ToUniversalTime().ToString('o')
+            }
+          }
+        }
+        $results | ConvertTo-Json -Compress
       POWERSHELL
+      encoded_script = Base64.strict_encode64(script.encode('UTF-16LE'))
+      command = "powershell -NoProfile -NonInteractive -EncodedCommand #{encoded_script}"
 
       raw = Facter::Core::Execution.exec(command)
       parsed = raw && !raw.strip.empty? ? JSON.parse(raw) : []
       certs = parsed.is_a?(Array) ? parsed : [parsed]
 
-      newest_by_cn = {}
+      newest_by_name = {}
       certs.each do |cert|
-        cn = cert['cn']
-        next if cn.nil? || cn.empty?
+        name = cert['name']
+        next if name.nil? || name.empty?
 
         not_after = Time.parse(cert['not_after'])
-        current = newest_by_cn[cn]
+        current = newest_by_name[name]
         if current.nil? || not_after > current[:not_after]
-          newest_by_cn[cn] = {
+          newest_by_name[name] = {
             thumbprint: cert['thumbprint'],
             not_after: not_after,
           }
@@ -44,7 +55,7 @@ Facter.add(:poshacme_certs) do
         next
       end
 
-      newest_by_cn.transform_values { |cert| cert[:thumbprint] }
+      newest_by_name.transform_values { |cert| cert[:thumbprint] }
     rescue StandardError
       {}
     end

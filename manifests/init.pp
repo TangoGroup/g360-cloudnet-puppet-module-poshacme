@@ -42,6 +42,34 @@ class poshacme (
       '  (Test-Path "C:/Program Files/WindowsPowerShell/Modules/Posh-ACME")',
       ') { exit 0 } else { exit 1 }',
   ], "\n")
+  $cleanup_onlyif = join(concat(
+      [
+        '$domains = @(',
+      ],
+      $letsencrypt_domains.map |$domain| {
+        "  '${domain}',"
+      },
+      [
+        ')',
+        '$cutoff = (Get-Date).AddDays(-90)',
+        "\$certs = Get-ChildItem Cert:\\LocalMachine\\${cert_store}",
+        'foreach ($cert in $certs) {',
+        '  if ($cert.NotAfter -ge $cutoff) { continue }',
+        '  foreach ($domain in $domains) {',
+        '    $escapedDomain = [regex]::Escape($domain)',
+        '    if ($cert.Subject -match "CN=$escapedDomain(?:,|$)") { exit 0 }',
+        '    foreach ($extension in $cert.Extensions) {',
+        '      if (',
+        '        $null -ne $extension.Oid -and',
+        '        $extension.Oid.FriendlyName -eq "Subject Alternative Name" -and',
+        '        $extension.Format($false) -match "(^|,\s*)DNS Name=$escapedDomain(,|$)"',
+        '      ) { exit 0 }',
+        '    }',
+        '  }',
+        '}',
+        'exit 1',
+      ],
+  ), "\n")
 
   file { $webroot:
     ensure => directory,
@@ -154,6 +182,7 @@ class poshacme (
       command   => $cleanup_command,
       provider  => powershell,
       logoutput => true,
+      onlyif    => $cleanup_onlyif,
       require   => [
         File['C:/temp/cleanup-poshacme-certs.ps1'],
         Exec['request-poshacme-certificate'],

@@ -1,0 +1,58 @@
+param(
+    [string]$debugPath = 'C:/temp/poshacme-cleanup.log',
+    [string]$certStore = '<%= $cert_store %>',
+    [string[]]$hosts = '<%= $letsencrypt_hosts %>'.Split(',')
+)
+
+"=== cleanup-poshacme-certs start: $(Get-Date)" | Out-File -FilePath $debugPath -Encoding UTF8
+$domains = $hosts | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
+$cutoff = (Get-Date).AddDays(-90)
+
+if ($domains.Count -eq 0) {
+    "No domains were provided; nothing to clean up" | Add-Content -Path $debugPath
+    exit 0
+}
+
+try {
+    $certs = Get-ChildItem "Cert:\LocalMachine\$certStore" -ErrorAction Stop
+} catch {
+    "Unable to read Cert:\LocalMachine\$certStore: $_" | Add-Content -Path $debugPath
+    exit 1
+}
+
+foreach ($cert in $certs) {
+    if ($cert.NotAfter -ge $cutoff) {
+        continue
+    }
+
+    foreach ($domain in $domains) {
+        $escapedDomain = [regex]::Escape($domain)
+        $matchesSubject = $cert.Subject -match "CN=$escapedDomain(?:,|$)"
+        $matchesSan = $false
+
+        foreach ($extension in $cert.Extensions) {
+            if (
+                $extension.Oid.FriendlyName -eq 'Subject Alternative Name' -and
+                $extension.Format($false) -match "(^|,\s*)DNS Name=$escapedDomain(,|$)"
+            ) {
+                $matchesSan = $true
+                break
+            }
+        }
+
+        if ($matchesSubject -or $matchesSan) {
+            "Removing stale cert $($cert.Thumbprint) for $domain; expired $($cert.NotAfter)" | Add-Content -Path $debugPath
+            try {
+                $cert | Remove-Item -ErrorAction Stop
+            } catch {
+                "Failed to remove stale cert $($cert.Thumbprint): $_" | Add-Content -Path $debugPath
+                exit 1
+            }
+            break
+        }
+    }
+}
+
+"=== cleanup-poshacme-certs end: $(Get-Date)" | Add-Content -Path $debugPath
+
+exit 0

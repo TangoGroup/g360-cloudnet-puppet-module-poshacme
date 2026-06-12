@@ -1,0 +1,35 @@
+{
+  "name": "gloo-poshacme",
+  "version": "0.1.0",
+  "author": "Gloo",
+  "summary": "Manage Posh-ACME certificates on Windows nodes",
+  "license": "proprietary",
+  "source": "git@github.com:TangoGroup/g360-cloudnet-puppet-module-poshacme.git",
+  "dependencies": [
+    {
+      "name": "puppetlabs/powershell",
+      "version_requirement": ">= 6.0.0 < 7.0.0"
+    },
+    {
+      "name": "puppetlabs/stdlib",
+      "version_requirement": ">= 9.0.0 < 10.0.0"
+    }
+  ],
+  "operatingsystem_support": [
+    {
+      "operatingsystem": "windows",
+      "operatingsystemrelease": [
+        "2016",
+        "2019",
+        "2022",
+        "2025"
+      ]
+    }
+  ],
+  "requirements": [
+    {
+      "name": "puppet",
+      "version_requirement": ">= 7.24 < 9.0.0"
+    }
+  ]
+}

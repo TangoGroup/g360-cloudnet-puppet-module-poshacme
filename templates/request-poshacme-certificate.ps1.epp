@@ -1,0 +1,65 @@
+param(
+    [string]$debugPath = 'C:/temp/poshacme-request.log',
+    [string]$webroot = '<%= $webroot %>',
+    [string]$baseDir = 'C:/ProgramData/Posh-ACME',
+    [string]$orderName = '<%= $cert_lineage %>',
+    [string]$certStore = '<%= $cert_store %>',
+    [string[]]$hosts = '<%= $letsencrypt_hosts %>'.Split(',')
+)
+
+"=== request-poshacme-certificate start: $(Get-Date)" | Out-File -FilePath $debugPath -Encoding UTF8
+$domains = $hosts | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
+
+if ($domains.Count -eq 0) {
+    "No domains were provided" | Add-Content -Path $debugPath
+    exit 1
+}
+
+"Posh-ACME domains: $($domains -join ', ')" | Add-Content -Path $debugPath
+"using order name: $orderName" | Add-Content -Path $debugPath
+"using webroot: $webroot" | Add-Content -Path $debugPath
+"checking cert store: Cert:\LocalMachine\$certStore" | Add-Content -Path $debugPath
+
+if (-not (Test-Path $baseDir)) {
+    New-Item -ItemType Directory -Path $baseDir -Force | Out-Null
+}
+
+try {
+    Import-Module Posh-ACME -ErrorAction Stop
+    "Imported Posh-ACME module successfully" | Add-Content -Path $debugPath
+} catch {
+    "Posh-ACME module import failed: $_" | Add-Content -Path $debugPath
+    exit 1
+}
+
+if (-not (Test-Path $webroot)) {
+    "Creating webroot: $webroot" | Add-Content -Path $debugPath
+    New-Item -ItemType Directory -Path $webroot -Force | Out-Null
+}
+
+$challengePath = Join-Path $webroot '.well-known\acme-challenge'
+if (-not (Test-Path $challengePath)) {
+    "Creating challenge path: $challengePath" | Add-Content -Path $debugPath
+    New-Item -ItemType Directory -Path $challengePath -Force | Out-Null
+}
+
+try {
+    "Configuring ACME server to Let's Encrypt production" | Add-Content -Path $debugPath
+    Set-PAServer LE_PROD | Out-Null
+    if (-not (Get-PAAccount -BaseDir $baseDir -ErrorAction SilentlyContinue)) {
+        "Creating Posh-ACME account with contact <%= $letsencrypt_email %>" | Add-Content -Path $debugPath
+        New-PAAccount -Contact '<%= $letsencrypt_email %>' -AcceptTos -BaseDir $baseDir -Force | Out-Null
+    }
+
+    "Requesting or renewing certificate for $($domains -join ', ')" | Add-Content -Path $debugPath
+    New-PACertificate -Name $orderName -Domain $domains -Plugin WebRoot -PluginArgs @{ WRPath = $webroot } -AcceptTos -Install -Verbose | Add-Content -Path $debugPath
+    "Posh-ACME certificate request finished" | Add-Content -Path $debugPath
+} catch {
+    "Posh-ACME certificate request failed: $_" | Add-Content -Path $debugPath
+    throw "Posh-ACME certificate request failed: $_"
+    exit 1
+}
+
+"=== request-poshacme-certificate end: $(Get-Date)" | Add-Content -Path $debugPath
+
+exit 0

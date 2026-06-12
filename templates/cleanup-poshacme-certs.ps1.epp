@@ -1,8 +1,6 @@
-param(
-    [string]$debugPath = 'C:/temp/poshacme-cleanup.log',
-    [string]$certStore = '<%= $cert_store %>',
-    [string[]]$hosts = '<%= $letsencrypt_hosts %>'.Split(',')
-)
+$debugPath = 'C:/temp/poshacme-cleanup-<%= $cert_lineage %>.log'
+$certStore = '<%= $cert_store %>'
+$hosts = '<%= $letsencrypt_hosts %>'.Split(',')
 
 "=== cleanup-poshacme-certs start: $(Get-Date)" | Out-File -FilePath $debugPath -Encoding UTF8
 $domains = $hosts | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }

@@ -1,6 +1,6 @@
 {
   "name": "gloo-poshacme",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "Gloo",
   "summary": "Manage Posh-ACME certificates on Windows nodes",
   "license": "proprietary",

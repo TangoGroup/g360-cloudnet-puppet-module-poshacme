@@ -1,11 +1,9 @@
-param(
-    [string]$debugPath = 'C:/temp/poshacme-request.log',
-    [string]$webroot = '<%= $webroot %>',
-    [string]$baseDir = 'C:/ProgramData/Posh-ACME',
-    [string]$orderName = '<%= $cert_lineage %>',
-    [string]$certStore = '<%= $cert_store %>',
-    [string[]]$hosts = '<%= $letsencrypt_hosts %>'.Split(',')
-)
+$debugPath = 'C:/temp/poshacme-request-<%= $cert_lineage %>.log'
+$webroot = '<%= $webroot %>'
+$baseDir = 'C:/ProgramData/Posh-ACME'
+$orderName = '<%= $cert_lineage %>'
+$certStore = '<%= $cert_store %>'
+$hosts = '<%= $letsencrypt_hosts %>'.Split(',')
 
 "=== request-poshacme-certificate start: $(Get-Date)" | Out-File -FilePath $debugPath -Encoding UTF8
 $domains = $hosts | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
